@@ -2,20 +2,18 @@
 settings = require '../lib/settings'
 
 describe "Operator general", ->
-  [set, ensure, keystroke, editor, editorElement, vimState] = []
+  [set, ensure, ensureWait, bindEnsureOption, bindEnsureWaitOption] = []
+  [editor, editorElement, vimState] = []
 
   beforeEach ->
     getVimState (state, vim) ->
       vimState = state
       {editor, editorElement} = vimState
-      {set, ensure, keystroke} = vim
-
-  afterEach ->
-    vimState.resetNormalMode()
+      {set, ensure, ensureWait, bindEnsureOption, bindEnsureWaitOption} = vim
 
   describe "cancelling operations", ->
     it "clear pending operation", ->
-      keystroke '/'
+      ensure '/'
       expect(vimState.operationStack.isEmpty()).toBe false
       vimState.searchInput.cancel()
       expect(vimState.operationStack.isEmpty()).toBe true
@@ -114,102 +112,163 @@ describe "Operator general", ->
         settings.set('wrapLeftRightMotion', true)
         ensure 'X', text: "012345\nabcdef", cursor: [0, 5]
 
-  describe "force operator's wise commands", ->
+  describe "the d keybinding", ->
     beforeEach ->
       set
         text: """
-        012345 789
-        ABCDEF EFG
-        """
-    describe "force-operator-characterwise", ->
-      describe "when target is linewise", ->
-        it "operate characterwisely and exclusively", ->
-          set cursor: [0, 1]
-          ensure "d v j",
-            text: """
-            0BCDEF EFG
-            """
-      describe "when target is characterwise", ->
-        it "operate inclusively for exclusive target", ->
-          set cursor: [0, 9]
-          ensure "d v b",
-            cursor: [0, 6]
-            text_: """
-            012345_
-            ABCDEF EFG
-            """
-        it "operate exclusively for inclusive target", ->
-          set cursor: [0, 0]
-          ensure "d v e",
-            cursor: [0, 0]
-            text: """
-            5 789
-            ABCDEF EFG
-            """
-    describe "force-operator-linewise", ->
-      it "operate linewisely for characterwise target", ->
-        set cursor: [0, 1]
-        ensure ['d V /', search: 'DEF'],
-          cursor: [0, 0]
-          text: ""
+          12345
+          abcde
 
-  describe "the d keybinding", ->
+          ABCDE\n
+          """
+        cursor: [1, 1]
+
     it "enters operator-pending mode", ->
       ensure 'd', mode: 'operator-pending'
 
     describe "when followed by a d", ->
       it "deletes the current line and exits operator-pending mode", ->
-        set text: "12345\nabcde\n\nABCDE", cursor: [1, 1]
+        set cursor: [1, 1]
         ensure 'd d',
-          text: '12345\n\nABCDE'
+          text: """
+            12345
+
+            ABCDE\n
+            """
           cursor: [1, 0]
-          register: '"': text: 'abcde\n'
+          register: '"': text: "abcde\n"
           mode: 'normal'
 
       it "deletes the last line and always make non-blank-line last line", ->
-        set text: """
-          12345
-          abcde
-          ABCDE\n
-          """
-          , cursor: [2, 1]
-        ensure 'd d', text: "12345\nabcde\n", cursor: [1, 0]
+        set cursor: [2, 0]
+        ensure '2 d d',
+          text: """
+            12345
+            abcde\n
+            """,
+          cursor: [1, 0]
 
       it "leaves the cursor on the first nonblank character", ->
-        set text: '12345\n  abcde\n', cursor: [0, 4]
-        ensure 'd d', text: "  abcde\n", cursor: [0, 2]
+        set
+          textC: """
+          1234|5
+            abcde\n
+          """
+        ensure 'd d',
+          textC: "  |abcde\n"
 
     describe "undo behavior", ->
-      originalText = "12345\nabcde\nABCDE\nQWERT"
+      [originalText, initialTextC] = []
       beforeEach ->
-
-        set text: originalText, cursor: [1, 1]
+        initialTextC = """
+          12345
+          a|bcde
+          ABCDE
+          QWERT
+          """
+        set textC: initialTextC
+        originalText = editor.getText()
 
       it "undoes both lines", ->
-        ensure 'd 2 d u', text: originalText, selectedText: ''
+        ensure 'd 2 d',
+          textC: """
+          12345
+          |QWERT
+          """
+        ensure 'u',
+          textC: initialTextC
+          selectedText: ""
 
       describe "with multiple cursors", ->
-        beforeEach ->
-          set cursor: [[1, 1], [0, 0]]
-
         describe "setCursorToStartOfChangeOnUndoRedo is true(default)", ->
-          # [FIXME] Should keep cursor?. so guranularity is not perfect in multi-cursors
-          # And ensure set position to start.
-          it "is undone as one operation and clear cursors", ->
-            ensure 'd l u',
-              text: "12345\nabcde\nABCDE\nQWERT"
-              selectedText: ['']
-              numCursors: 1
+          it "clear multiple cursors and set cursor to start of changes of last cursor", ->
+            set
+              text: originalText
+              cursor: [[0, 0], [1, 1]]
+
+            ensure 'd l',
+              textC: """
+              |2345
+              a|cde
+              ABCDE
+              QWERT
+              """
+
+            ensure 'u',
+              textC: """
+              12345
+              a|bcde
+              ABCDE
+              QWERT
+              """
+              selectedText: ''
+
+            ensure 'ctrl-r',
+              textC: """
+              2345
+              a|cde
+              ABCDE
+              QWERT
+              """
+              selectedText: ''
+
+          it "clear multiple cursors and set cursor to start of changes of last cursor", ->
+            set
+              text: originalText
+              cursor: [[1, 1], [0, 0]]
+
+            ensure 'd l',
+              text: """
+              2345
+              acde
+              ABCDE
+              QWERT
+              """
+              cursor: [[1, 1], [0, 0]]
+
+            ensure 'u',
+              textC: """
+              |12345
+              abcde
+              ABCDE
+              QWERT
+              """
+              selectedText: ''
+
+            ensure 'ctrl-r',
+              textC: """
+              |2345
+              acde
+              ABCDE
+              QWERT
+              """
+              selectedText: ''
 
         describe "setCursorToStartOfChangeOnUndoRedo is false", ->
-          beforeEach ->
-            settings.set('setCursorToStartOfChangeOnUndoRedo', false)
+          initialTextC = null
 
-          it "is undone as one operation", ->
-            ensure 'd l u',
-              text: "12345\nabcde\nABCDE\nQWERT"
+          beforeEach ->
+            initialTextC = """
+              |12345
+              a|bcde
+              ABCDE
+              QWERT
+              """
+
+            settings.set('setCursorToStartOfChangeOnUndoRedo', false)
+            set textC: initialTextC
+            ensure 'd l',
+              textC: """
+              |2345
+              a|cde
+              ABCDE
+              QWERT
+              """
+
+          it "put cursor to end of change (works in same way of atom's core:undo)", ->
+            ensure 'u',
+              textC: initialTextC
               selectedText: ['', '']
-              numCursors: 2
 
     describe "when followed by a w", ->
       it "deletes the next word until the end of the line and exits operator-pending mode", ->
@@ -229,8 +288,7 @@ describe "Operator general", ->
       it "deletes the containing word", ->
         set text: "12345 abcde ABCDE", cursor: [0, 9]
 
-        ensure 'd',
-          mode: 'operator-pending'
+        ensure 'd', mode: 'operator-pending'
 
         ensure 'i w',
           text: "12345  ABCDE"
@@ -309,16 +367,6 @@ describe "Operator general", ->
         it "deletes both lines", ->
           ensure 'd k', text: "a\nb\n", cursor: [1, 0]
 
-      # [TODO] write more generic operator test. #119
-      # This is general behavior of all operator.
-      # When it cant move, its target selection should be empty so nothing happen.
-      xdescribe "when it can't move", ->
-        textOriginal = "a\nb\n"
-        cursorOriginal = [0, 0]
-        it "deletes delete nothing", ->
-          set text: textOriginal, cursor: cursorOriginal
-          ensure 'd k', text: textOriginal, cursor: cursorOriginal
-
     describe "when followed by a G", ->
       beforeEach ->
         originalText = "12345\nabcde\nABCDE"
@@ -355,7 +403,7 @@ describe "Operator general", ->
           set text: "test (xyz)", cursor: [0, 6]
 
         it "deletes until the closing parenthesis", ->
-          ensure ['y y d t', input: ')'],
+          ensure 'd t )',
             text: 'test ()'
             cursor: [0, 6]
 
@@ -367,20 +415,110 @@ describe "Operator general", ->
             1234
             ABCD\n
             """
-          cursorBuffer: [[0, 1], [1, 2], [2, 3]]
+          cursor: [[0, 1], [1, 2], [2, 3]]
 
         ensure 'd e',
-          text: "a\n12\nABC\n"
-          cursorBuffer: [[0, 0], [1, 1], [2, 2]]
+          text: "a\n12\nABC"
+          cursor: [[0, 0], [1, 1], [2, 2]]
 
       it "doesn't delete empty selections", ->
         set
           text: "abcd\nabc\nabd"
-          cursorBuffer: [[0, 0], [1, 0], [2, 0]]
+          cursor: [[0, 0], [1, 0], [2, 0]]
 
-        ensure ['d t', input: 'd'],
+        ensure 'd t d',
           text: "d\nabc\nd"
-          cursorBuffer: [[0, 0], [1, 0], [2, 0]]
+          cursor: [[0, 0], [1, 0], [2, 0]]
+
+    describe "stayOnDelete setting", ->
+      beforeEach ->
+        settings.set('stayOnDelete', true)
+        set
+          text_: """
+          ___3333
+          __2222
+          _1111
+          __2222
+          ___3333\n
+          """
+          cursor: [0, 3]
+
+      describe "target range is linewise range", ->
+        it "keep original column after delete", ->
+          ensure "d d", cursor: [0, 3], text_: "__2222\n_1111\n__2222\n___3333\n"
+          ensure ".", cursor: [0, 3], text_: "_1111\n__2222\n___3333\n"
+          ensure ".", cursor: [0, 3], text_: "__2222\n___3333\n"
+          ensure ".", cursor: [0, 3], text_: "___3333\n"
+
+        it "v_D also keep original column after delete", ->
+          ensure "v 2 j D", cursor: [0, 3], text_: "__2222\n___3333\n"
+
+      describe "target range is text object", ->
+        describe "target is indent", ->
+          indentText = """
+          0000000000000000
+            22222222222222
+            22222222222222
+            22222222222222
+          0000000000000000\n
+          """
+          textData = new TextData(indentText)
+          beforeEach ->
+            set
+              text: textData.getRaw()
+
+          it "[from top] keep column", ->
+            set cursor: [1, 10]
+            ensure 'd i i', cursor: [1, 10], text: textData.getLines([0, 4])
+          it "[from middle] keep column", ->
+            set cursor: [2, 10]
+            ensure 'd i i', cursor: [1, 10], text: textData.getLines([0, 4])
+          it "[from bottom] keep column", ->
+            set cursor: [3, 10]
+            ensure 'd i i', cursor: [1, 10], text: textData.getLines([0, 4])
+
+        describe "target is paragraph", ->
+          paragraphText = """
+            p1---------------
+            p1---------------
+            p1---------------
+
+            p2---------------
+            p2---------------
+            p2---------------
+
+            p3---------------
+            p3---------------
+            p3---------------\n
+            """
+
+          textData = new TextData(paragraphText)
+          P1 = [0, 1, 2]
+          B1 = 3
+          P2 = [4, 5, 6]
+          B2 = 7
+          P3 = [8, 9, 10]
+          B3 = 11
+
+          beforeEach ->
+            set
+              text: textData.getRaw()
+
+          it "set cursor to start of deletion after delete [from bottom of paragraph]", ->
+            set cursor: [0, 0]
+            ensure 'd i p', cursor: [0, 0], text: textData.getLines([B1..B3], chomp: true)
+            ensure 'j .', cursor: [1, 0], text: textData.getLines([B1, B2, P3..., B3], chomp: true)
+            ensure 'j .', cursor: [1, 0], text: textData.getLines([B1, B2, B3], chomp: true)
+          it "set cursor to start of deletion after delete [from middle of paragraph]", ->
+            set cursor: [1, 0]
+            ensure 'd i p', cursor: [0, 0], text: textData.getLines([B1..B3], chomp: true)
+            ensure '2 j .', cursor: [1, 0], text: textData.getLines([B1, B2, P3..., B3], chomp: true)
+            ensure '2 j .', cursor: [1, 0], text: textData.getLines([B1, B2, B3], chomp: true)
+          it "set cursor to start of deletion after delete [from bottom of paragraph]", ->
+            set cursor: [1, 0]
+            ensure 'd i p', cursor: [0, 0], text: textData.getLines([B1..B3], chomp: true)
+            ensure '3 j .', cursor: [1, 0], text: textData.getLines([B1, B2, P3..., B3], chomp: true)
+            ensure '3 j .', cursor: [1, 0], text: textData.getLines([B1, B2, B3], chomp: true)
 
   describe "the D keybinding", ->
     beforeEach ->
@@ -402,111 +540,173 @@ describe "Operator general", ->
 
   describe "the y keybinding", ->
     beforeEach ->
-      set text: "012 345\nabc\n", cursor: [0, 4]
-
-    describe "when selected lines in visual linewise mode", ->
-      beforeEach ->
-        keystroke 'V j y'
-
-      it "is in linewise motion", ->
-        ensure register: '"': type: 'linewise'
-
-      it "saves the lines to the default register", ->
-        ensure register: '"': text: "012 345\nabc\n"
-
-      it "places the cursor at the beginning of the selection", ->
-        ensure cursorBuffer: [0, 0]
-
-    describe "when followed by a second y ", ->
-      beforeEach ->
-        keystroke 'y y'
-
-      it "saves the line to the default register", ->
-        ensure register: '"': text: "012 345\n"
-
-      it "leaves the cursor at the starting position", ->
-        ensure cursor: [0, 4]
+      set
+        textC: """
+        012 |345
+        abc\n
+        """
 
     describe "when useClipboardAsDefaultRegister enabled", ->
-      it "writes to clipboard", ->
-        settings.set 'useClipboardAsDefaultRegister', true
-        keystroke 'y y'
-        expect(atom.clipboard.read()).toBe '012 345\n'
-
-    describe "when followed with a repeated y", ->
       beforeEach ->
-        keystroke 'y 2 y'
+        settings.set('useClipboardAsDefaultRegister', true)
+        atom.clipboard.write('___________')
+        ensure null, register: '"': text: '___________'
 
-      it "copies n lines, starting from the current", ->
-        ensure register: '"': text: "012 345\nabc\n"
+      describe "read/write to clipboard through register", ->
+        it "writes to clipboard with default register", ->
+          savedText = '012 345\n'
+          ensure 'y y', register: '"': text: savedText
+          expect(atom.clipboard.read()).toBe(savedText)
 
-      it "leaves the cursor at the starting position", ->
-        ensure cursor: [0, 4]
+    describe "visual-mode.linewise", ->
+      beforeEach ->
+        set
+          textC: """
+            0000|00
+            111111
+            222222\n
+            """
+
+      describe "selection not reversed", ->
+        it "saves to register(type=linewise), cursor move to start of target", ->
+          ensure "V j y",
+            cursor: [0, 0]
+            register: '"': text: "000000\n111111\n", type: 'linewise'
+
+      describe "selection is reversed", ->
+        it "saves to register(type=linewise), cursor doesn't move", ->
+          set cursor: [2, 2]
+          ensure "V k y",
+            cursor: [1, 2]
+            register: '"': text: "111111\n222222\n", type: 'linewise'
+
+    describe "visual-mode.blockwise", ->
+      beforeEach ->
+        set
+          textC_: """
+          000000
+          1!11111
+          222222
+          333333
+          4|44444
+          555555\n
+          """
+        ensure "ctrl-v l l j",
+          selectedTextOrdered: ["111", "222", "444", "555"]
+          mode: ['visual', 'blockwise']
+
+      describe "when stayOnYank = false", ->
+        it "place cursor at start of block after yank", ->
+          ensure "y",
+            mode: 'normal'
+            textC_: """
+              000000
+              1!11111
+              222222
+              333333
+              4|44444
+              555555\n
+              """
+      describe "when stayOnYank = true", ->
+        beforeEach ->
+          settings.set('stayOnYank', true)
+        it "place cursor at head of block after yank", ->
+          ensure "y",
+            mode: 'normal'
+            textC_: """
+              000000
+              111111
+              222!222
+              333333
+              444444
+              555|555\n
+              """
+
+    describe "y y", ->
+      it "saves to register(type=linewise), cursor stay at same position", ->
+        ensure 'y y',
+          cursor: [0, 4]
+          register: '"': text: "012 345\n", type: 'linewise'
+      it "[N y y] yank N line, starting from the current", ->
+        ensure 'y 2 y',
+          cursor: [0, 4]
+          register: '"': text: "012 345\nabc\n"
+      it "[y N y] yank N line, starting from the current", ->
+        ensure '2 y y',
+          cursor: [0, 4]
+          register: '"': text: "012 345\nabc\n"
 
     describe "with a register", ->
-      beforeEach ->
-        keystroke ['"', input: 'a', 'y y']
-
       it "saves the line to the a register", ->
-        ensure register: a: text: "012 345\n"
+        ensure '" a y y', register: a: text: "012 345\n"
 
-      it "appends the line to the A register", ->
-        ensure ['"', input: 'A', 'y y'],
-          register: a: text: "012 345\n012 345\n"
+    describe "with A register", ->
+      it "append to existing value of lowercase-named register", ->
+        ensure '" a y y', register: a: text: "012 345\n"
+        ensure '" A y y', register: a: text: "012 345\n012 345\n"
 
-    describe "with a forward motion", ->
+    describe "with a motion", ->
       beforeEach ->
-        keystroke 'y e'
+        settings.set('useClipboardAsDefaultRegister', false)
 
-      it "saves the selected text to the default register", ->
-        ensure register: '"': text: '345'
+      it "yank from here to destnation of motion", ->
+        ensure 'y e', cursor: [0, 4], register: {'"': text: '345'}
 
-      it "leaves the cursor at the starting position", ->
-        ensure cursor: [0, 4]
+      it "does not yank when motion failed", ->
+        ensure 'y t x', register: {'"': text: undefined}
 
-      it "does not yank when motion fails", ->
-        ensure ['y t', input: 'x'],
-          register: '"': text: '345'
+      it "yank and move cursor to start of target", ->
+        ensure 'y h',
+          cursor: [0, 3]
+          register: '"': text: ' '
 
-    describe "with a text object", ->
-      it "moves the cursor to the beginning of the text object", ->
-        set cursorBuffer: [0, 5]
-        ensure 'y i w', cursorBuffer: [0, 4]
+      it "[with linewise motion] yank and desn't move cursor", ->
+        ensure 'y j',
+          cursor: [0, 4]
+          register: {'"': text: "012 345\nabc\n", type: 'linewise'}
 
-    describe "with a left motion", ->
+    describe "with a text-obj", ->
       beforeEach ->
-        keystroke 'y h'
+        set
+          cursor: [2, 8]
+          text: """
 
-      it "saves the left letter to the default register", ->
-        ensure register: '"': text: ' '
+          1st paragraph
+          1st paragraph
 
-      it "moves the cursor position to the left", ->
-        ensure cursor: [0, 3]
+          2n paragraph
+          2n paragraph\n
+          """
+      it "inner-word and move cursor to start of target", ->
+        ensure 'y i w',
+          register: '"': text: "paragraph"
+          cursor: [2, 4]
 
-    describe "with a down motion", ->
-      beforeEach ->
-        keystroke 'y j'
-
-      it "saves both full lines to the default register", ->
-        ensure register: '"': text: "012 345\nabc\n"
-
-      it "leaves the cursor at the starting position", ->
-        ensure cursor: [0, 4]
+      it "yank text-object inner-paragraph and move cursor to start of target", ->
+        ensure 'y i p',
+          cursor: [1, 0]
+          register: '"': text: "1st paragraph\n1st paragraph\n"
 
     describe "when followed by a G", ->
       beforeEach ->
-        originalText = "12345\nabcde\nABCDE"
+        originalText = """
+        12345
+        abcde
+        ABCDE\n
+        """
         set text: originalText
 
-      describe "on the beginning of the second line", ->
-        it "deletes the bottom two lines", ->
-          set cursor: [1, 0]
-          ensure 'y G P', text: '12345\nabcde\nABCDE\nabcde\nABCDE'
+      it "yank and doesn't move cursor", ->
+        set cursor: [1, 0]
+        ensure 'y G',
+          register: {'"': text: "abcde\nABCDE\n", type: 'linewise'}
+          cursor: [1, 0]
 
-      describe "on the middle of the second line", ->
-        it "deletes the bottom two lines", ->
-          set cursor: [1, 2]
-          ensure 'y G P', text: '12345\nabcde\nABCDE\nabcde\nABCDE'
+      it "yank and doesn't move cursor", ->
+        set cursor: [1, 2]
+        ensure 'y G',
+          register: {'"': text: "abcde\nABCDE\n", type: 'linewise'}
+          cursor: [1, 2]
 
     describe "when followed by a goto line G", ->
       beforeEach ->
@@ -527,10 +727,10 @@ describe "Operator general", ->
       it "moves each cursor and copies the last selection's text", ->
         set
           text: "  abcd\n  1234"
-          cursorBuffer: [[0, 0], [1, 5]]
+          cursor: [[0, 0], [1, 5]]
         ensure 'y ^',
           register: '"': text: '123'
-          cursorBuffer: [[0, 0], [1, 2]]
+          cursor: [[0, 0], [1, 2]]
 
     describe "stayOnYank setting", ->
       text = null
@@ -547,19 +747,21 @@ describe "Operator general", ->
         set text: text.getRaw(), cursor: [1, 2]
 
       it "don't move cursor after yank from normal-mode", ->
-        ensure "y i p", cursorBuffer: [1, 2], register: '"': text: text.getLines([0..2])
-        ensure "j y y", cursorBuffer: [2, 2], register: '"': text: text.getLines([2])
-        ensure "k .", cursorBuffer: [1, 2], register: '"': text: text.getLines([1])
+        ensure "y i p", cursor: [1, 2], register: '"': text: text.getLines([0..2])
+        ensure "j y y", cursor: [2, 2], register: '"': text: text.getLines([2])
+        ensure "k .", cursor: [1, 2], register: '"': text: text.getLines([1])
+        ensure "y h", cursor: [1, 2], register: '"': text: "_"
+        ensure "y b", cursor: [1, 2], register: '"': text: "1_"
 
       it "don't move cursor after yank from visual-linewise", ->
-        ensure "V y", cursorBuffer: [1, 2], register: '"': text: text.getLines([1])
-        ensure "V j y", cursorBuffer: [2, 2], register: '"': text: text.getLines([1..2])
+        ensure "V y", cursor: [1, 2], register: '"': text: text.getLines([1])
+        ensure "V j y", cursor: [2, 2], register: '"': text: text.getLines([1..2])
 
       it "don't move cursor after yank from visual-characterwise", ->
-        ensure "v l l y", cursorBuffer: [1, 4], register: '"': text: "234"
-        ensure "v h h y", cursorBuffer: [1, 2], register: '"': text: "234"
-        ensure "v j y", cursorBuffer: [2, 2], register: '"': text: "234567\n2_2"
-        ensure "v 2 k y", cursorBuffer: [0, 2], register: '"': text: "234567\n1_234567\n2_2"
+        ensure "v l l y", cursor: [1, 4], register: '"': text: "234"
+        ensure "v h h y", cursor: [1, 2], register: '"': text: "234"
+        ensure "v j y", cursor: [2, 2], register: '"': text: "234567\n2_2"
+        ensure "v 2 k y", cursor: [0, 2], register: '"': text: "234567\n1_234567\n2_2"
 
   describe "the yy keybinding", ->
     describe "on a single line file", ->
@@ -578,100 +780,264 @@ describe "Operator general", ->
       it "copies the entire line and pastes it correctly", ->
         ensure 'y y p',
           register: '"': text: "no newline!\n"
-          text: "no newline!\nno newline!"
+          text: "no newline!\nno newline!\n"
 
       it "copies the entire line and pastes it respecting count and new lines", ->
         ensure 'y y 2 p',
           register: '"': text: "no newline!\n"
-          text: "no newline!\nno newline!\nno newline!"
+          text: "no newline!\nno newline!\nno newline!\n"
 
   describe "the Y keybinding", ->
+    text = null
     beforeEach ->
-      set text: "012 345\nabc\n", cursor: [0, 4]
+      text = """
+      012 345
+      abc\n
+      """
+      set text: text, cursor: [0, 4]
 
     it "saves the line to the default register", ->
       ensure 'Y', cursor: [0, 4], register: '"': text: "012 345\n"
 
+    it "yank the whole lines to the default register", ->
+      ensure 'v j Y', cursor: [0, 0], register: '"': text: text
+
   describe "the p keybinding", ->
-    describe "with character contents", ->
+    describe "with single line character contents", ->
       beforeEach ->
-        set text: "012\n", cursor: [0, 0]
+        settings.set('useClipboardAsDefaultRegister', false)
+
+        set textC: "|012\n"
         set register: '"': text: '345'
         set register: 'a': text: 'a'
-        atom.clipboard.write "clip"
+        atom.clipboard.write("clip")
 
       describe "from the default register", ->
-        beforeEach -> keystroke 'p'
-
         it "inserts the contents", ->
-          ensure text: "034512\n", cursor: [0, 3]
+          ensure "p", textC: "034|512\n"
 
       describe "at the end of a line", ->
         beforeEach ->
-          set cursor: [0, 2]
-          keystroke 'p'
-
+          set textC: "01|2\n"
         it "positions cursor correctly", ->
-          ensure text: "012345\n", cursor: [0, 5]
+          ensure "p", textC: "01234|5\n"
+
+      describe "paste to empty line", ->
+        it "paste content to that empty line", ->
+          set
+            textC: """
+            1st
+            |
+            3rd
+            """
+            register: '"': text: '2nd'
+
+          ensure 'p',
+            textC: """
+            1st
+            2n|d
+            3rd
+            """
 
       describe "when useClipboardAsDefaultRegister enabled", ->
         it "inserts contents from clipboard", ->
-          settings.set 'useClipboardAsDefaultRegister', true
-          ensure 'p', text: "0clip12\n"
+          settings.set('useClipboardAsDefaultRegister', true)
+          ensure 'p', textC: "0cli|p12\n"
 
       describe "from a specified register", ->
-        beforeEach ->
-          keystroke ['"', input: 'a', 'p']
-
         it "inserts the contents of the 'a' register", ->
-          ensure text: "0a12\n", cursor: [0, 1]
+          ensure '" a p', textC: "0|a12\n",
 
       describe "at the end of a line", ->
         it "inserts before the current line's newline", ->
-          set text: "abcde\none two three", cursor: [1, 4]
-          ensure 'd $ k $ p', text: "abcdetwo three\none "
+          set
+            textC: """
+            abcde
+            one |two three
+            """
+          ensure 'd $ k $ p',
+            textC_: """
+            abcdetwo thre|e
+            one_
+            """
+
+    describe "with multiline character contents", ->
+      beforeEach ->
+        set textC: "|012\n"
+        set register: '"': text: '345\n678'
+
+      it "p place cursor at start of mutation", -> ensure "p", textC: "0|345\n67812\n"
+      it "P place cursor at start of mutation", -> ensure "P", textC: "|345\n678012\n"
 
     describe "with linewise contents", ->
       describe "on a single line", ->
         beforeEach ->
           set
-            text: '012'
-            cursor: [0, 1]
-            register: '"': text: " 345\n", type: 'linewise'
+            textC: '0|12'
+            register: '"': {text: " 345\n", type: 'linewise'}
 
         it "inserts the contents of the default register", ->
-          ensure 'p', text: "012\n 345", cursor: [1, 1]
+          ensure 'p',
+            textC_: """
+            012
+            _|345\n
+            """
 
         it "replaces the current selection and put cursor to the first char of line", ->
-          ensure 'v p',
-            text: "0\n 345\n2"
-            cursor: [1, 1]
+          ensure 'v p', # '1' was replaced
+            textC_: """
+            0
+            _|345
+            2
+            """
 
       describe "on multiple lines", ->
         beforeEach ->
           set
-            text: "012\n 345"
-            register: '"': text: " 456\n", type: 'linewise'
+            text: """
+            012
+             345
+            """
+            register: '"': {text: " 456\n", type: 'linewise'}
 
         it "inserts the contents of the default register at middle line", ->
           set cursor: [0, 1]
-          keystroke 'p'
-          ensure text: "012\n 456\n 345", cursor: [1, 1]
+          ensure "p",
+            textC: """
+            012
+             |456
+             345
+            """
 
         it "inserts the contents of the default register at end of line", ->
           set cursor: [1, 1]
-          ensure 'p', text: "012\n 345\n 456", cursor: [2, 1]
+          ensure 'p',
+            textC: """
+            012
+             345
+             |456\n
+            """
 
     describe "with multiple linewise contents", ->
       beforeEach ->
         set
-          text: "012\nabc",
-          cursor: [1, 0]
-          register: '"': text: " 345\n 678\n", type: 'linewise'
-        keystroke 'p'
+          textC: """
+          012
+          |abc
+          """
+          register: '"': {text: " 345\n 678\n", type: 'linewise'}
 
       it "inserts the contents of the default register", ->
-        ensure text: "012\nabc\n 345\n 678", cursor: [2, 1]
+        ensure 'p',
+          textC: """
+          012
+          abc
+           |345
+           678\n
+          """
+
+    describe "put-after-with-auto-indent command", ->
+      ensurePutAfterWithAutoIndent = (options) ->
+        dispatch(editor.element, 'vim-mode-plus:put-after-with-auto-indent')
+        ensure(null, options)
+
+      beforeEach ->
+        waitsForPromise ->
+          settings.set('useClipboardAsDefaultRegister', false)
+          atom.packages.activatePackage('language-javascript').then ->
+            set grammar: 'source.js'
+
+      describe "paste with auto-indent", ->
+        it "inserts the contents of the default register", ->
+          set
+            register: '"':
+              type: 'linewise'
+              text: " 345\n",
+            textC_: """
+              if| () {
+              }
+              """
+          ensurePutAfterWithAutoIndent
+            textC_: """
+              if () {
+                |345
+              }
+              """
+        it "multi-line register contents with auto indent", ->
+          set
+            register: '"':
+              type: 'linewise'
+              text: """
+                if(3) {
+                  if(4) {}
+                }
+                """
+            textC: """
+              if (1) {
+                |if (2) {
+                }
+              }
+              """
+          ensurePutAfterWithAutoIndent
+            textC: """
+            if (1) {
+              if (2) {
+                |if(3) {
+                  if(4) {}
+                }
+              }
+            }
+            """
+
+      describe "when pasting already indented multi-lines register content", ->
+        beforeEach ->
+          set
+            textC: """
+            if (1) {
+              |if (2) {
+              }
+            }
+            """
+
+        it "keep original layout", ->
+          set register: '"':
+            type: 'linewise'
+            text: """
+               a: 123,
+            bbbb: 456,
+            """
+          ensurePutAfterWithAutoIndent
+            textC: """
+            if (1) {
+              if (2) {
+                   |a: 123,
+                bbbb: 456,
+              }
+            }
+            """
+
+        it "keep original layout [register content have blank row]", ->
+          set register: '"':
+            type: 'linewise'
+            text: """
+              if(3) {
+              __abc
+
+              __def
+              }
+              """.replace(/_/g, ' ')
+          ensurePutAfterWithAutoIndent
+            textC_: """
+              if (1) {
+                if (2) {
+                  |if(3) {
+                    abc
+
+                    def
+                  }
+                }
+              }
+              """
 
     describe "pasting twice", ->
       beforeEach ->
@@ -679,10 +1045,10 @@ describe "Operator general", ->
           text: "12345\nabcde\nABCDE\nQWERT"
           cursor: [1, 1]
           register: '"': text: '123'
-        keystroke '2 p'
+        ensure '2 p'
 
       it "inserts the same line twice", ->
-        ensure text: "12345\nab123123cde\nABCDE\nQWERT"
+        ensure null, text: "12345\nab123123cde\nABCDE\nQWERT"
 
       describe "when undone", ->
         it "removes both lines", ->
@@ -726,80 +1092,10 @@ describe "Operator general", ->
         set text: "012\n", cursor: [0, 0]
         set register: '"': text: '345'
         set register: a: text: 'a'
-        keystroke 'P'
+        ensure 'P'
 
       it "inserts the contents of the default register above", ->
-        ensure text: "345012\n", cursor: [0, 2]
-
-  describe "PutAfterAndSelect and PutBeforeAndSelect", ->
-    beforeEach ->
-      atom.keymaps.add "text",
-        'atom-text-editor.vim-mode-plus:not(.insert-mode)':
-          'g p': 'vim-mode-plus:put-after-and-select'
-          'g P': 'vim-mode-plus:put-before-and-select'
-      set
-        text: """
-          111
-          222
-          333
-
-          """
-        cursor: [1, 0]
-    describe "in visual-mode", ->
-      describe "linewise register", ->
-        beforeEach ->
-          set register: '"': text: "AAA\n"
-        it "paste and select: [selection:linewise]", ->
-          ensure 'V g p', text: "111\nAAA\n333\n", selectedText: "AAA\n", mode: ['visual', 'linewise']
-        it "paste and select: [selection:charwise, register:linewise]", ->
-          ensure 'v g P', text: "111\n\nAAA\n22\n333\n", selectedText: "AAA\n", mode: ['visual', 'linewise']
-
-      describe "characterwise register", ->
-        beforeEach ->
-          set register: '"': text: "AAA"
-        it "paste and select: [selection:linewise, register:charwise]", ->
-          ensure 'V g p', text: "111\nAAA\n333\n", selectedText: "AAA\n", mode: ['visual', 'linewise']
-        it "paste and select: [selection:charwise, register:charwise]", ->
-          ensure 'v g P', text: "111\nAAA22\n333\n", selectedText: "AAA", mode: ['visual', 'characterwise']
-
-    describe "in normal", ->
-      describe "linewise register", ->
-        beforeEach ->
-          set register: '"': text: "AAA\n"
-        it "putAfter and select", ->
-          ensure 'g p', text: "111\n222\nAAA\n333\n", selectedText: "AAA\n", mode: ['visual', 'linewise']
-        it "putBefore and select", ->
-          ensure 'g P', text: "111\nAAA\n222\n333\n", selectedText: "AAA\n", mode: ['visual', 'linewise']
-      describe "characterwise register", ->
-        beforeEach ->
-          set register: '"': text: "AAA"
-        it "putAfter and select", ->
-          ensure 'g p', text: "111\n2AAA22\n333\n", selectedText: "AAA", mode: ['visual', 'characterwise']
-        it "putAfter and select", ->
-          ensure 'g P', text: "111\nAAA222\n333\n", selectedText: "AAA", mode: ['visual', 'characterwise']
-
-  describe "the J keybinding", ->
-    beforeEach ->
-      set text: "012\n    456\n", cursor: [0, 1]
-
-    describe "without repeating", ->
-      beforeEach -> keystroke 'J'
-
-      it "joins the contents of the current line with the one below it", ->
-        ensure text: "012 456\n"
-
-    describe "with repeating", ->
-      beforeEach ->
-        set
-          text: "12345\nabcde\nABCDE\nQWERT"
-          cursor: [1, 1]
-        keystroke '2 J'
-
-      describe "undo behavior", ->
-        beforeEach -> keystroke 'u'
-
-        it "handles repeats", ->
-          ensure text: "12345\nabcde\nABCDE\nQWERT"
+        ensure null, text: "345012\n", cursor: [0, 2]
 
   describe "the . keybinding", ->
     beforeEach ->
@@ -814,102 +1110,138 @@ describe "Operator general", ->
   describe "the r keybinding", ->
     beforeEach ->
       set
-        text: "12\n34\n\n"
-        cursorBuffer: [[0, 0], [1, 0]]
+        text: """
+        12
+        34
+        \n
+        """
+        cursor: [[0, 0], [1, 0]]
 
     it "replaces a single character", ->
-      ensure ['r', input: 'x'], text: 'x2\nx4\n\n'
-
-    it "does nothing when cancelled", ->
-      ensure 'r',
-        mode: 'operator-pending'
-      vimState.input.cancel()
-      ensure
-        text: '12\n34\n\n'
-        mode: 'normal'
+      ensureWait 'r x', text: 'x2\nx4\n\n'
 
     it "remain visual-mode when cancelled", ->
-      keystroke 'v r'
-      vimState.input.cancel()
-      ensure
+      ensureWait 'v r escape',
         text: '12\n34\n\n'
         mode: ['visual', 'characterwise']
 
     it "replaces a single character with a line break", ->
-      inputEditorElement = vimState.input.editorElement
-      keystroke 'r'
-      dispatch(inputEditorElement, 'core:confirm')
-      ensure
+      ensureWait 'r enter',
         text: '\n2\n\n4\n\n'
-        cursorBuffer: [[1, 0], [3, 0]]
+        cursor: [[1, 0], [3, 0]]
+
+    it "auto indent when replaced with singe new line", ->
+      set
+        textC_: """
+        __a|bc
+        """
+      ensureWait 'r enter',
+        textC_: """
+        __a
+        __|c
+        """
 
     it "composes properly with motions", ->
-      ensure ['2 r', input: 'x'], text: 'xx\nxx\n\n'
+      ensureWait '2 r x', text: 'xx\nxx\n\n'
 
     it "does nothing on an empty line", ->
-      set cursorBuffer: [2, 0]
-      ensure ['r', input: 'x'], text: '12\n34\n\n'
+      set cursor: [2, 0]
+      ensureWait 'r x', text: '12\n34\n\n'
 
     it "does nothing if asked to replace more characters than there are on a line", ->
-      ensure ['3 r', input: 'x'], text: '12\n34\n\n'
+      ensureWait '3 r x', text: '12\n34\n\n'
+
+    describe "cancellation", ->
+      it "does nothing when cancelled", ->
+        ensureWait 'r escape', text: '12\n34\n\n', mode: 'normal'
+
+      it "keep multi-cursor on cancelled", ->
+        set                textC: "|    a\n!    a\n|    a\n"
+        ensureWait "r escape", textC: "|    a\n!    a\n|    a\n", mode: "normal"
+
+      it "keep multi-cursor on cancelled", ->
+        set                textC: "|**a\n!**a\n|**a\n"
+        ensureWait "v l",      textC: "**|a\n**!a\n**|a\n", selectedText: ["**", "**", "**"], mode: ["visual", "characterwise"]
+        ensureWait "r escape", textC: "**|a\n**!a\n**|a\n", selectedText: ["**", "**", "**"], mode: ["visual", "characterwise"]
 
     describe "when in visual mode", ->
       beforeEach ->
-        keystroke 'v e'
+        ensure 'v e'
 
       it "replaces the entire selection with the given character", ->
-        ensure ['r', input: 'x'], text: 'xx\nxx\n\n'
+        ensureWait 'r x', text: 'xx\nxx\n\n'
 
       it "leaves the cursor at the beginning of the selection", ->
-        ensure ['r', input: 'x' ], cursorBuffer: [[0, 0], [1, 0]]
+        ensureWait 'r x', cursor: [[0, 0], [1, 0]]
 
     describe "when in visual-block mode", ->
-      textOriginal = """
-        0:2345
-        1: o11o
-        2: o22o
-        3: o33o
-        4: o44o\n
-        """
-      textReplaced = """
-        0:2345
-        1: oxxo
-        2: oxxo
-        3: oxxo
-        4: oxxo\n
-        """
-      textRepeated = """
-        0:2345
-        xx oxxo
-        xx oxxo
-        xx oxxo
-        xx oxxo\n
-        """
-
       beforeEach ->
-        set text: textOriginal, cursor: [1, 4]
+        set
+          cursor: [1, 4]
+          text: """
+            0:2345
+            1: o11o
+            2: o22o
+            3: o33o
+            4: o44o\n
+            """
         ensure 'ctrl-v l 3 j',
           mode: ['visual', 'blockwise']
           selectedTextOrdered: ['11', '22', '33', '44'],
 
       it "replaces each selection and put cursor on start of top selection", ->
-        ensure ['r', input: 'x'],
-          mode: 'normal'
-          text: textReplaced
-          cursor: [1, 4]
-        set cursor: [1, 0]
-        ensure '.',
-          mode: 'normal'
-          text: textRepeated
-          cursor: [1, 0]
+        runs ->
+          ensureWait 'r x',
+            mode: 'normal'
+            cursor: [1, 4]
+            text: """
+              0:2345
+              1: oxxo
+              2: oxxo
+              3: oxxo
+              4: oxxo\n
+              """
+
+        runs ->
+          set cursor: [1, 0]
+
+        runs ->
+          ensureWait '.',
+            mode: 'normal'
+            cursor: [1, 0]
+            text: """
+              0:2345
+              xx oxxo
+              xx oxxo
+              xx oxxo
+              xx oxxo\n
+              """
 
   describe 'the m keybinding', ->
-    beforeEach ->
-      set text: '12\n34\n56\n', cursorBuffer: [0, 1]
+    ensureMarkByMode = (mode) ->
+      _ensure = bindEnsureWaitOption({mode})
+      _ensure "m a", mark: "a": [0, 2]
+      _ensure "l m a", mark: "a": [0, 3]
+      _ensure "j m a", mark: "a": [1, 3]
+      _ensure "j m b", mark: "a": [1, 3], "b": [2, 3]
+      _ensure "l m c", mark: "a": [1, 3], "b": [2, 3], "c": [2, 4]
 
-    it 'marks a position', ->
-      keystroke 'm a'
-      expect(vimState.mark.get('a')).toEqual [0, 1]
+    beforeEach ->
+      set
+        textC: """
+        0:| 12
+        1: 34
+        2: 56
+        """
+
+    it "[normal] can mark multiple positon", ->
+      ensureMarkByMode("normal")
+    it "[vC] can mark", ->
+      ensure "v"
+      ensureMarkByMode(["visual", "characterwise"])
+    it "[vL] can mark", ->
+      ensure "V"
+      ensureMarkByMode(["visual", "linewise"])
 
   describe 'the R keybinding', ->
     beforeEach ->
@@ -918,7 +1250,7 @@ describe "Operator general", ->
           12345
           67890
           """
-        cursorBuffer: [0, 2]
+        cursor: [0, 2]
 
     it "enters replace mode and replaces characters", ->
       ensure 'R',
@@ -930,50 +1262,51 @@ describe "Operator general", ->
         mode: 'normal'
 
     it "continues beyond end of line as insert", ->
-      ensure 'R',
-        mode: ['insert', 'replace']
+      ensure 'R', mode: ['insert', 'replace']
       editor.insertText "abcde"
       ensure 'escape', text: '12abcde\n67890'
 
     it 'treats backspace as undo', ->
       editor.insertText "foo"
-      keystroke 'R'
+      ensure 'R'
       editor.insertText "a"
       editor.insertText "b"
-      ensure text: "12fooab5\n67890"
+      ensure null, text: "12fooab5\n67890"
 
-      ensure 'backspace', text: "12fooa45\n67890"
+      dispatch(editorElement, 'core:backspace')
+      ensure null, text: "12fooa45\n67890"
+
       editor.insertText "c"
-      ensure text: "12fooac5\n67890"
-      ensure 'backspace backspace',
-        text: "12foo345\n67890"
-        selectedText: ''
+      ensure null, text: "12fooac5\n67890"
 
-      ensure 'backspace',
-        text: "12foo345\n67890"
-        selectedText: ''
+      dispatch(editor.element, 'core:backspace')
+      dispatch(editor.element, 'core:backspace')
+      ensure null, text: "12foo345\n67890", selectedText: ''
+
+      dispatch(editor.element, 'core:backspace')
+      ensure null, text: "12foo345\n67890", selectedText: ''
 
     it "can be repeated", ->
-      keystroke 'R'
+      ensure 'R'
       editor.insertText "ab"
-      keystroke 'escape'
-      set cursorBuffer: [1, 2]
+      ensure 'escape'
+      set cursor: [1, 2]
       ensure '.', text: "12ab5\n67ab0", cursor: [1, 3]
-      set cursorBuffer: [0, 4]
+      set cursor: [0, 4]
       ensure '.', text: "12abab\n67ab0", cursor: [0, 5]
 
     it "can be interrupted by arrow keys and behave as insert for repeat", ->
       # FIXME don't know how to test this (also, depends on PR #568)
 
     it "repeats correctly when backspace was used in the text", ->
-      keystroke 'R'
+      ensure 'R'
       editor.insertText "a"
-      keystroke 'backspace'
+      dispatch(editor.element, 'core:backspace')
       editor.insertText "b"
-      keystroke 'escape'
-      set cursorBuffer: [1, 2]
+      ensure 'escape'
+      set cursor: [1, 2]
       ensure '.', text: "12b45\n67b90", cursor: [1, 2]
-      set cursorBuffer: [0, 4]
+      set cursor: [0, 4]
       ensure '.', text: "12b4b\n67b90", cursor: [0, 4]
 
     it "doesn't replace a character if newline is entered", ->
@@ -991,7 +1324,7 @@ describe "Operator general", ->
       it "replace character unless input isnt new line(\\n)", ->
         ensure 'R', mode: ['insert', 'replace']
         editor.insertText "a\nb\nc"
-        ensure
+        ensure null,
           text: """
             a
             b
@@ -1003,7 +1336,7 @@ describe "Operator general", ->
         ensure 'R', mode: ['insert', 'replace']
         set cursor: [0, 1]
         editor.insertText "a\nb\nc"
-        ensure
+        ensure null,
           text: """
             0a
             b
@@ -1011,7 +1344,9 @@ describe "Operator general", ->
             56789
             """
           cursor: [2, 1]
-        ensure 'backspace',
+
+        dispatch(editor.element, 'core:backspace')
+        ensure null,
           text: """
             0a
             b
@@ -1019,38 +1354,49 @@ describe "Operator general", ->
             56789
             """
           cursor: [2, 0]
-        ensure 'backspace',
+
+        dispatch(editor.element, 'core:backspace')
+        ensure null,
           text: """
             0a
             b34
             56789
             """
           cursor: [1, 1]
-        ensure 'backspace',
+
+        dispatch(editor.element, 'core:backspace')
+        ensure null,
           text: """
             0a
             234
             56789
             """
           cursor: [1, 0]
-        ensure 'backspace',
+
+        dispatch(editor.element, 'core:backspace')
+        ensure null,
           text: """
             0a234
             56789
             """
           cursor: [0, 2]
-        ensure 'backspace',
+
+        dispatch(editor.element, 'core:backspace')
+        ensure null,
           text: """
             01234
             56789
             """
           cursor: [0, 1]
-        ensure 'backspace', # do nothing
+
+        dispatch(editor.element, 'core:backspace') # do nothing
+        ensure null,
           text: """
             01234
             56789
             """
           cursor: [0, 1]
+
         ensure 'escape',
           text: """
             01234
@@ -1061,7 +1407,7 @@ describe "Operator general", ->
       it "repeate multiline text case-1", ->
         ensure 'R', mode: ['insert', 'replace']
         editor.insertText "abc\ndef"
-        ensure
+        ensure null,
           text: """
             abc
             def
@@ -1090,7 +1436,7 @@ describe "Operator general", ->
       it "repeate multiline text case-2", ->
         ensure 'R', mode: ['insert', 'replace']
         editor.insertText "abc\nd"
-        ensure
+        ensure null,
           text: """
             abc
             d4
@@ -1107,3 +1453,222 @@ describe "Operator general", ->
           """
           cursor: [3, 0]
           mode: 'normal'
+
+  describe 'AddBlankLineBelow, AddBlankLineAbove', ->
+    beforeEach ->
+      set
+        textC: """
+        line0
+        li|ne1
+        line2
+        line3
+        """
+
+      atom.keymaps.add "test",
+        'atom-text-editor.vim-mode-plus.normal-mode':
+          'enter': 'vim-mode-plus:add-blank-line-below'
+          'shift-enter': 'vim-mode-plus:add-blank-line-above'
+
+    it "insert blank line below/above", ->
+      ensure "enter",
+        textC: """
+        line0
+        li|ne1
+
+        line2
+        line3
+        """
+      ensure "shift-enter",
+        textC: """
+        line0
+
+        li|ne1
+
+        line2
+        line3
+        """
+
+    it "[with-count] insert blank line below/above", ->
+      ensure "2 enter",
+        textC: """
+        line0
+        li|ne1
+
+
+        line2
+        line3
+        """
+      ensure "2 shift-enter",
+        textC: """
+        line0
+
+
+        li|ne1
+
+
+        line2
+        line3
+        """
+
+  describe 'Select as operator', ->
+    beforeEach ->
+      settings.set('keymapSToSelect', true)
+      jasmine.attachToDOM(editorElement)
+
+    describe "select by target", ->
+      beforeEach ->
+        set
+          textC: """
+          0 |ooo xxx ***
+          1 xxx *** ooo
+
+          3 ooo xxx ***
+          4 xxx *** ooo\n
+          """
+
+      it "select text-object", ->
+        ensure "s p", # p is `i p` shorthand.
+          mode: ["visual", "linewise"]
+          selectedText: "0 ooo xxx ***\n1 xxx *** ooo\n"
+          propertyHead: [1, 13]
+
+      it "select by motion j with stayOnSelectTextObject", ->
+        settings.set("stayOnSelectTextObject", true)
+        ensure "s i p",
+          mode: ["visual", "linewise"]
+          selectedText: "0 ooo xxx ***\n1 xxx *** ooo\n"
+          propertyHead: [1, 2]
+
+      it "select occurrence in text-object with occurrence-modifier", ->
+        ensure "s o p", # p is `i p` shorthand.
+          mode: ["visual", "characterwise"]
+          selectedText: ["ooo", "ooo"]
+          selectedBufferRangeOrdered: [
+            [[0, 2], [0, 5]]
+            [[1, 10], [1, 13]]
+          ]
+
+      it "select occurrence in text-object with preset-occurrence", ->
+        ensure "g o s p", # p is `i p` shorthand.
+          mode: ["visual", "characterwise"]
+          selectedText: ["ooo", "ooo"]
+          selectedBufferRangeOrdered: [
+            [[0, 2], [0, 5]]
+            [[1, 10], [1, 13]]
+          ]
+
+      it "convert presistent-selection into normal selection", ->
+        ensure "v j enter",
+          mode: "normal"
+          persistentSelectionCount: 1
+          persistentSelectionBufferRange: [
+            [[0, 2], [1, 3]]
+          ]
+
+        ensure "j j v j",
+          persistentSelectionCount: 1
+          persistentSelectionBufferRange: [
+            [[0, 2], [1, 3]]
+          ]
+          mode: ["visual", "characterwise"]
+          selectedText: "ooo xxx ***\n4 x"
+
+        # Now it's show time, to convert persistent selection into normal selection
+        # by only `s`.
+        ensure "s",
+          mode: ["visual", "characterwise"]
+          persistentSelectionCount: 0
+          selectedTextOrdered: ["ooo xxx ***\n1 x", "ooo xxx ***\n4 x"]
+
+      it "select preset-occurrence in presistent-selection and normal selection", ->
+        ensure "g o",
+          occurrenceText: ['ooo', 'ooo', 'ooo', 'ooo']
+
+        ensure "V j enter G V",
+          persistentSelectionCount: 1
+          mode: ["visual", "linewise"]
+          selectedText: "4 xxx *** ooo\n"
+
+        ensure "s", # Notice `ooo` in row 3 is EXCLUDED.
+          persistentSelectionCount: 0
+          mode: ["visual", "characterwise"]
+          selectedText: ["ooo", "ooo", "ooo"]
+          selectedBufferRangeOrdered: [
+            [[0, 2], [0, 5]]
+            [[1, 10], [1, 13]]
+            [[4, 10], [4, 13]]
+          ]
+
+      it "select by motion $", ->
+        ensure "s $",
+          mode: ["visual", "characterwise"]
+          selectedText: "ooo xxx ***\n"
+
+      it "select by motion j", ->
+        ensure "s j",
+          mode: ["visual", "linewise"]
+          selectedText: "0 ooo xxx ***\n1 xxx *** ooo\n"
+
+      it "select by motion j v-modifier", ->
+        ensure "s v j",
+          mode: ["visual", "characterwise"]
+          selectedText: "ooo xxx ***\n1 x"
+
+      it "select occurrence by motion G", ->
+        ensure "s o G",
+          mode: ["visual", "characterwise"]
+          selectedText: ["ooo", "ooo", "ooo", "ooo"]
+          selectedBufferRangeOrdered: [
+            [[0, 2], [0, 5]]
+            [[1, 10], [1, 13]]
+            [[3, 2], [3, 5]]
+            [[4, 10], [4, 13]]
+          ]
+
+      it "select occurrence by motion G with explicit V-modifier", ->
+        ensure "s o V G",
+          mode: ["visual", "linewise"]
+          selectedTextOrdered: [
+            "0 ooo xxx ***\n1 xxx *** ooo\n"
+            "3 ooo xxx ***\n4 xxx *** ooo\n"
+          ]
+
+      it "return to normal-mode when fail to select", ->
+        # attempt to select inner-function but there is no function.
+        ensure "s i f",
+          mode: "normal"
+          cursor: [0, 2]
+
+        # attempt to find 'z' but no "z".
+        ensure "s f z",
+          mode: "normal"
+          cursor: [0, 2]
+
+      describe "complex scenario", ->
+        beforeEach ->
+          waitsForPromise ->
+            atom.packages.activatePackage('language-javascript')
+
+          runs ->
+            set
+              grammar: 'source.js'
+              textC: """
+              const result = []
+              for (const !member of members) {
+                let member2 = member + member
+                let member3 = member + member + member
+                result.push(member2, member3)
+              }\n
+              """
+
+        it "select occurrence in a-fold ,reverse(o) then escape to normal-mode", ->
+          ensure "s o z o escape",
+            mode: "normal"
+            textC: """
+            const result = []
+            for (const |member of members) {
+              let member2 = |member + |member
+              let member3 = |member + |member + |member
+              result.push(member2, member3)
+            }\n
+            """

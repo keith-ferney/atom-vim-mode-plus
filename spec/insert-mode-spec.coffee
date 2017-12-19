@@ -1,16 +1,13 @@
 {getVimState} = require './spec-helper'
 
 describe "Insert mode commands", ->
-  [set, ensure, keystroke, editor, editorElement, vimState] = []
+  [set, ensure, editor, editorElement, vimState] = []
 
   beforeEach ->
     getVimState (_vimState, vim) ->
       vimState = _vimState
       {editor, editorElement} = _vimState
-      {set, ensure, keystroke} = vim
-
-  afterEach ->
-    vimState.resetNormalMode()
+      {set, ensure} = vim
 
   describe "Copy from line above/below", ->
     beforeEach ->
@@ -21,8 +18,8 @@ describe "Insert mode commands", ->
           abcd
           efghi
           """
-        cursorBuffer: [[1, 0], [3, 0]]
-      keystroke 'i'
+        cursor: [[1, 0], [3, 0]]
+      ensure 'i'
 
     describe "the ctrl-y command", ->
       it "copies from the line above", ->
@@ -61,21 +58,27 @@ describe "Insert mode commands", ->
 
       it "does nothing on the first line", ->
         set
-          cursorBuffer: [[0, 2], [3, 2]]
+          textC: """
+          12|345
+
+          abcd
+          ef!ghi
+          """
+
         editor.insertText 'a'
-        ensure
-          text: """
-            12a345
+        ensure null,
+          textC: """
+            12a|345
 
             abcd
-            efaghi
+            efa!ghi
             """
         ensure 'ctrl-y',
-          text: """
-            12a345
+          textC: """
+            12a|345
 
             abcd
-            efadghi
+            efad!ghi
             """
 
     describe "the ctrl-e command", ->
@@ -121,7 +124,7 @@ describe "Insert mode commands", ->
     describe "InsertLastInserted", ->
       ensureInsertLastInserted = (key, options) ->
         {insert, text, finalText} = options
-        keystroke key
+        ensure key
         editor.insertText(insert)
         ensure "escape", text: text
         ensure "G I ctrl-a", text: finalText
@@ -136,7 +139,7 @@ describe "Insert mode commands", ->
           def\n
           """
         set text: "", cursor: [0, 0]
-        keystroke 'i'
+        ensure 'i'
         editor.insertText(initialText)
         ensure "escape g g",
           text: initialText

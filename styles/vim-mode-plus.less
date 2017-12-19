@@ -3,143 +3,124 @@
 
 // Cursor style
 // =========================
-.block-cursor(@visibility: visible) {
-  border: 0;
-  background-color: @syntax-cursor-color;
-  visibility: @visibility;
+.cursor-base () {
+  border: none;
+  background: none;
   opacity: 0.5;
 }
 
-.underline-cursor(@visibility: visible) {
-  border: none;
-  border-bottom: .3em solid @syntax-cursor-color;
-  background: none;
-  visibility: @visibility;
-  opacity: 0.5;
-}
-
-.low-block-cursor(@visibility: visible) {
-  border: none;
-  border-bottom: .6em solid @syntax-cursor-color;
-  background: none;
-  visibility: @visibility;
-  opacity: 0.5;
+.underline-cursor(@bottom-width: 0.2em) {
+  .cursor-base();
+  border-bottom-width: @bottom-width;
+  border-bottom-style: solid;
+  border-bottom-color: @syntax-cursor-color;
 }
 
 atom-text-editor.vim-mode-plus.normal-mode,
+atom-text-editor.vim-mode-plus.visual-mode,
 atom-text-editor.vim-mode-plus.operator-pending-mode,
-atom-text-editor.vim-mode-plus.visual-mode
-{
-  &::shadow, // shadow-DOM enabled
-  &           // shadow-DOM disabled
-  {
+atom-text-editor.vim-mode-plus.insert-mode.replace {
+  &.is-focused,
+  &.vim-mode-plus-input-focused,
+  &.vim-mode-plus-search-input-focused {
     .cursor {
-      .block-cursor(hidden);
+      .cursor-base();
+      background-color: @syntax-cursor-color; // block-cursor
+    }
+  }
+  &.vim-mode-plus-input-focused.hide-cursor {
+    .cursor { opacity: 0; }
+    .cursors.blink-off .cursor { opacity: 0; }
+  }
+}
+
+atom-text-editor.vim-mode-plus.operator-pending-mode {
+  &.is-focused,
+  &.vim-mode-plus-search-input-focused {
+    .cursor { .underline-cursor(0.6em); }
+    .cursors.blink-off .cursor { opacity: 0; }
+  }
+}
+
+atom-text-editor.vim-mode-plus.insert-mode.replace {
+  &.is-focused {
+    .cursor {
+      .underline-cursor(0.3em);
+      opacity: 0.8;
     }
   }
 }
 
-atom-text-editor.vim-mode-plus.normal-mode.is-focused,
-atom-text-editor.vim-mode-plus.operator-pending-mode.is-focused,
-atom-text-editor.vim-mode-plus.visual-mode.is-focused
-{
-  &::shadow, // shadow-DOM enabled
-  &           // shadow-DOM disabled
-  {
-    .cursor {
-      .block-cursor;
-    }
+// vim-mode-plus-input-focused for surround, f, F, t, T, r etc.
+atom-text-editor.vim-mode-plus.normal-mode,
+atom-text-editor.vim-mode-plus.visual-mode,
+atom-text-editor.vim-mode-plus.operator-pending-mode, {
+  &.vim-mode-plus-input-focused {
+    .cursor { .underline-cursor(); }
   }
 }
 
-atom-text-editor.vim-mode-plus.visual-mode
-{
-  &::shadow, // shadow-DOM enabled
-  &           // shadow-DOM disabled
-  {
-    .cursor.hidden-cursor {
-      display: block;
-    }
-  }
-}
-
-atom-text-editor.vim-mode-plus.insert-mode.replace
-{
-  &::shadow, // shadow-DOM enabled
-  &           // shadow-DOM disabled
-  {
-    .cursor {
-      .underline-cursor(hidden);
-    }
-  }
-}
-
-atom-text-editor.vim-mode-plus.insert-mode.replace.is-focused
-{
-  &::shadow, // shadow-DOM enabled
-  &           // shadow-DOM disabled
-  {
-    .cursor {
-      .underline-cursor;
-    }
-
-    .cursors.blink-off .cursor {
-      .underline-cursor(hidden);
-    }
-  }
-}
-
-atom-text-editor.vim-mode-plus.operator-pending-mode,
-{
-  &::shadow, // shadow-DOM enabled
-  &           // shadow-DOM disabled
-  {
-    .cursor {
-      .low-block-cursor(hidden);
-    }
-  }
-}
-
-atom-text-editor.vim-mode-plus.operator-pending-mode.is-focused,
-atom-text-editor.vim-mode-plus-input-char-waiting
-{
-  &::shadow, // shadow-DOM enabled
-  &           // shadow-DOM disabled
-  {
-    .cursor {
-      .low-block-cursor;
-    }
-
-    .cursors.blink-off .cursor {
-      .low-block-cursor(hidden);
-    }
-  }
+atom-text-editor.vim-mode-plus-input-char-waiting {
+  &.is-focused { .cursor { .underline-cursor(); } }
 }
 
 // Flash ranges e.g. flashing yanked range.
 // =========================
-atom-text-editor, atom-text-editor::shadow {
-  .vim-mode-plus-flash .region {
-    z-index: 1;
-    background-color: fadeout(@syntax-selection-flash-color, 50%);
+.flash-animation (@animation-name, @color) {
+  @keyframes @animation-name {
+    from { background-color: @color; }
+    to { background-color: transparent; }
   }
-  .vim-mode-plus-flash.added .region {
-    background-color: fadeout(darken(@syntax-color-added, 10%), 50%);
-  }
-  .vim-mode-plus-flash.removed .region {
-    background-color: fadeout(@syntax-color-removed, 50%);
-  }
-  .vim-mode-plus-cursor-normal .region {
-    // z-index: 2147483647;
-    background-color: @syntax-cursor-color;
-    // background-color: @background-color-success;
-    opacity: 0.5;
-  }
-  .vim-mode-plus-cursor-insert .region {
-    // [FIXME] I want i-bar style cursor for insert-mode.
-    background-color: @syntax-cursor-color;
-    opacity: 0.8;
-  }
+}
+.flash (@animation-name; @duration) {
+  animation-name: @animation-name;
+  animation-duration: @duration;
+  animation-iteration-count: 1;
+}
+
+@flash-base-color: contrast(@syntax-background-color, darken(@syntax-selection-color, 3%), lighten(@syntax-selection-color, 3%));
+@flash-search-color: fadeout(darken(@syntax-selection-flash-color, 10%), 20%);
+@flash-added-color: fadeout(darken(@syntax-color-added, 10%), 50%);
+@flash-removed-color: fadeout(@syntax-color-removed, 50%);
+
+// flashOnOperate
+.flash-animation(flash-operator, @flash-base-color);
+.flash-animation(flash-operator-occurrence, @flash-added-color);
+.flash-animation(flash-operator-remove-occurrence, @flash-removed-color);
+
+// flashOnUndoRedo
+.flash-animation(flash-undo-redo, @flash-base-color);
+.flash-animation(flash-undo-redo-multiple-changes, @flash-added-color);
+.flash-animation(flash-undo-redo-multiple-deletes, @flash-removed-color);
+
+// flashOnSearch
+.flash-animation(flash-search, @flash-search-color);
+.flash-animation(flash-screen, @flash-base-color);
+
+atom-text-editor .vim-mode-plus-flash {
+  // flashOnOperate
+  &.operator                   .region { .flash(flash-operator, 0.5s); }
+  &.operator-long              .region { .flash(flash-operator, 0.8s); }
+  &.operator-occurrence        .region { .flash(flash-operator-occurrence, 0.8s); }
+  &.operator-remove-occurrence .region { .flash(flash-operator-remove-occurrence, 0.8s); }
+
+  // flashOnUndoRedo
+  &.undo-redo                  .region { .flash(flash-undo-redo, 0.5s); }
+  &.undo-redo-multiple-changes .region { .flash(flash-undo-redo-multiple-changes, 0.5s); }
+  &.undo-redo-multiple-deletes .region { .flash(flash-undo-redo-multiple-deletes, 0.5s); }
+
+  // flashOnSearch
+  &.search .region { .flash(flash-search, 1.0s); z-index: 1; }
+  &.screen .region { .flash(flash-screen, 0.3s); }
+
+  // demo-mode pkg integration to stop flash while demo-mode's hover is active
+  &.operator-demo                   .region { background: @flash-base-color; }
+  &.operator-long-demo              .region { background: @flash-base-color; }
+  &.operator-occurrence-demo        .region { background: @flash-added-color; }
+  &.operator-remove-occurrence-demo .region { background: @flash-removed-color; }
+  &.undo-redo-demo                  .region { background: @flash-base-color; }
+  &.undo-redo-multiple-changes-demo .region { background: @flash-added-color; }
+  &.undo-redo-multiple-deletes-demo  .region { background: @flash-removed-color; }
 }
 
 // Hover Counter
@@ -149,35 +130,35 @@ atom-text-editor, atom-text-editor::shadow {
   color: @text-color-highlight;
   background-color: @base-background-color;
   border-radius: @component-border-radius;
-  box-shadow: 0 0 10px @syntax-text-color;
+  box-shadow: 0 0 1px @syntax-text-color;
+
+  margin-top: -3.0em;
+  margin-left: -0.3em;
   padding-left: 0.2em;
   padding-right: 0.2em;
-  margin-left: -0.1em;
   text-align: center;
-  &.first {
-    background-color: @background-color-info;
-  }
-  &.last {
-    background-color: @background-color-error;
-  }
+
+  &.first { background-color: @background-color-info; }
+  &.last { background-color: @background-color-error; }
 }
 
-// Input mini editor, e.g surround char.
-// =========================
-.vim-mode-plus-input atom-text-editor[mini] {
+atom-text-editor[mini].vim-mode-plus-input {
   background-color: inherit;
-  border: none;
-  width: 100%;
-  height: 0px;
   font-weight: normal;
   color: @text-color;
   line-height: 1.28;
   cursor: default;
   white-space: nowrap;
   padding-left: 10px;
-  &.is-focused {
-    box-shadow: none;
-  }
+  height: 0px !important;
+  width: 0px !important;
+  overflow: hidden !important;
+  border: none !important;
+  padding: 0 !important;
+  display: block !important;
+  position: fixed !important;
+  top: -10px !important;
+  left: -10px !important;
 }
 
 // Search
@@ -189,70 +170,117 @@ atom-text-editor, atom-text-editor::shadow {
     padding: @component-padding/2 @component-padding;
     border: none;
   }
-  .editor-container {
-    width: 100%;
-  }
+  .editor-container { width: 100%; }
 }
+
 atom-text-editor[mini].vim-mode-plus-search {
   border: none;
   color: @text-color;
   cursor: default;
-  &.is-focused {
-    box-shadow: none;
-  }
+  &.is-focused { box-shadow: none; }
   &::before {
     font-size: 1.2em;
     padding-right: 0.5em;
-    content: '/';
+    content: "/";
   }
-  &.backwards::before {
-    content: '?';
+  &.backwards::before { content: "?"; }
+}
+
+@search-match-base: @syntax-result-marker-color;
+@search-match: hsla(hue(@search-match-base), saturation(@search-match-base), lightness(@search-match-base), 0.4);
+@search-match-first: fadeout(@syntax-color-renamed, 60%);
+@search-match-last: fadeout(@syntax-color-removed, 60%);
+@search-match-border-current: hsla(hue(@search-match-base), saturation(@search-match-base), lightness(@search-match-base), 1.0);
+@search-match-border-first: syntax-color-renamed;
+@search-match-border-last: syntax-color-removed;
+
+atom-text-editor:not(.silent) {
+  .vim-mode-plus-search-match {
+    .region { background-color: @search-match; }
+    &.first .region { background-color: @search-match-first; }
+    &.last .region { background-color: @search-match-last; }
   }
+}
+
+@keyframes flash-find-char {
+  from { border-color: @syntax-color-function; }
+  to { border-color: transparent; }
 }
 
 // highlight
-.vim-mode-plus {
-  &.round-box {
-    box-sizing: border-box;
-    border-radius: @component-border-radius;
-  }
+.round-box {
+  box-sizing: border-box;
+  border-radius: @component-border-radius;
 }
 
-atom-text-editor, atom-text-editor::shadow {
-  .vim-mode-plus-search-match .region {
-    .vim-mode-plus.round-box;
-    background-color: transparent;
-    border: 1px solid @syntax-result-marker-color;
-  }
-  .vim-mode-plus-search-match.first .region {
-    border: 1px solid @syntax-color-renamed;
-  }
-  .vim-mode-plus-search-match.last .region {
-    border: 1px solid @syntax-color-removed;
-  }
-  .vim-mode-plus-search-match.current .region {
-    border-width: 2px;
-    background-color: @syntax-selection-color;
+atom-text-editor {
+  .vim-mode-plus-search-match {
+    .region {
+      .round-box();
+      border: 2px solid transparent;
+      transition: border-color 0.2s;
+    }
+    &.current .region {
+      border-color: @search-match-border-current;
+      transition-duration: 0.1s;
+    }
+    &.first.current .region {
+      border-color: search-match-border-first;
+    }
+    &.last.current .region {
+      border-color: @search-match-border-last;
+    }
   }
   .vim-mode-plus-highlight-search .region {
-    .vim-mode-plus.round-box;
-    border: 1px solid fadeout(@syntax-result-marker-color, 70%);
+    .round-box();
+    border: 1px solid fadeout(@syntax-text-color, 70%);
     background-color: @syntax-selection-color;
   }
-  .vim-mode-plus-range-marker .region {
-    background-color: fadeout(darken(@syntax-color-added, 10%), 80%);
-    // background-color: fadeout(darken(@syntax-selection-flash-color, 10%), 80%);
+  .vim-mode-plus-persistent-selection .region {
+    background-color: @syntax-selection-color;
+  }
+  .vim-mode-plus-target-range .region {
+    background-color: @syntax-selection-color;
+  }
+  .vim-mode-plus-occurrence-base .region {
+    box-sizing: border-box;
+    border-bottom-width: 2px;
+    border-bottom-style: dotted;
+
+    z-index: 1;
+    border-color: @syntax-color-modified;
+  }
+
+  .vim-mode-plus-find-char {
+    .region {
+      box-sizing: border-box;
+      border-width: 0px;
+      border-bottom-width: 2px;
+      border-style: solid;
+    }
+    &.pre-confirm .region {
+      border-color: @syntax-color-modified;
+      &.current { border-bottom-width: 5px; }
+    }
+    &.post-confirm .region {
+      .flash(flash-find-char, 2.0s);
+      &.long { animation-duration: 4.0s; }
+    }
   }
 }
 
 // Maximize Pane
 // =========================
-.vim-mode-plus-maximize-pane() {
+atom-workspace.vim-mode-plus--pane-maximized {
+  atom-dock.left { display: none; }
+  atom-dock.right { display: none; }
   atom-pane-container {
     position: relative;
+    atom-pane-axis:not(.vim-mode-plus--active-pane-axis) { display: none; }
     atom-pane {
+      .item-views { background: @syntax-background-color !important; }
       display: none;
-      &.active {
+      &.vim-mode-plus--active-pane {
         display: flex;
         position: absolute;
         top: 0;
@@ -263,26 +291,21 @@ atom-text-editor, atom-text-editor::shadow {
       }
     }
   }
+  &.vim-mode-plus--hide-tab-bar { .tab-bar { display: none; } }
+  &.vim-mode-plus--hide-status-bar { .status-bar { display: none; } }
+  &.vim-mode-plus--pane-centered { atom-text-editor:not(.mini) { margin-left: 20%; } }
 }
 
-.hide-tab-bar() {
-  .tab-bar {
-    display: none;
-  }
-}
-
-atom-workspace.vim-mode-plus-pane-maximized {
-  .vim-mode-plus-maximize-pane();
-  &.hide-tab-bar {
-    .hide-tab-bar()
-  }
-}
 
 // SelectList Highlight matched text
 // =========================
-.vim-mode-plus-select-list .list-group {
-  .character-match {
-    color: @text-color-highlight;
-    font-weight: bold;
+.vim-mode-plus-select-list .list-group .character-match {
+  color: @text-color-highlight;
+  font-weight: bold;
+}
+
+.demo-mode-container {
+  .kind {
+    color: @text-color-selected;
   }
 }
